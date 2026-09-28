@@ -64,8 +64,8 @@ def main():
     config = dict(zip(df_config.iloc[:, 0], df_config.iloc[:, 1]))
     profile = dict(zip(df_profile.iloc[:, 0], df_profile.iloc[:, 1]))
     
-    posisi = config.get("posisi", "Data Analyst")
-    lokasi = config.get("lokasi", "Jakarta")
+    posisi = str(config.get("posisi", "Digital Marketing Junior")).strip()
+lokasi = str(config.get("lokasi", "Jakarta")).strip()
     eligible_mode = str(config.get("eligible_mode", "ON")).upper()
     max_send = int(config.get("max_send_per_run", 5))
     action_mode = str(config.get("action_mode", "send")).lower()
