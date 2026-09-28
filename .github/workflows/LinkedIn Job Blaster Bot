@@ -27,4 +27,5 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           CONFIG_SHEET_URL: ${{ secrets.CONFIG_SHEET_URL }}
           PROFILE_SHEET_URL: ${{ secrets.PROFILE_SHEET_URL }}
+          LOG_WEBHOOK_URL: ${{ secrets.LOG_WEBHOOK_URL }}
         run: python main.py
