@@ -10,11 +10,10 @@ import google.generativeai as genai
 
 AI_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=AI_KEY)
-model = genai.GenerativeModel('gemini-3.5-flash-lite')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 def search_realtime_posts(posisi, lokasi):
-    """Pencarian real-time yang lebih luas agar pasti mendeteksi postingan HR"""
-    # Menggabungkan posisi dan lokasi tanpa tanda kutip ketat agar hasil lebih kaya
+    """Pencarian real-time otomatis berdasarkan isian spreadsheet"""
     query = f"site:linkedin.com/posts/ {posisi} {lokasi} hiring email"
     print(f"🌐 Mencari dengan kueri: {query}")
     
@@ -58,17 +57,23 @@ def main():
     profile_url = os.environ.get("PROFILE_SHEET_URL")
     webhook_url = os.environ.get("LOG_WEBHOOK_URL")
     
+    # Membaca data dari Google Sheets secara dinamis
     df_config = pd.read_csv(config_url)
     df_profile = pd.read_csv(profile_url)
     
-    config = dict(zip(df_config.iloc[:, 0], df_config.iloc[:, 1]))
-    profile = dict(zip(df_profile.iloc[:, 0], df_profile.iloc[:, 1]))
+    # Membersihkan spasi pada header tabel spreadsheet
+    df_config.columns = df_config.columns.str.strip()
+    config = dict(zip(df_config.iloc[:, 0].astype(str).str.strip(), df_config.iloc[:, 1].astype(str).str.strip()))
+    profile = dict(zip(df_profile.iloc[:, 0].astype(str).str.strip(), df_profile.iloc[:, 1].astype(str).str.strip()))
     
-    posisi = str(config.get("posisi", "Digital Marketing Junior")).strip()
-lokasi = str(config.get("lokasi", "Jakarta")).strip()
+    # Mengambil parameter murni dari Spreadsheet (Tanpa hardcode Python)
+    posisi = config.get("posisi", "Digital Marketing Junior")
+    lokasi = config.get("lokasi", "Jakarta")
     eligible_mode = str(config.get("eligible_mode", "ON")).upper()
-    max_send = int(config.get("max_send_per_run", 5))
+    max_send = int(float(config.get("max_send_per_run", 5)))
     action_mode = str(config.get("action_mode", "send")).lower()
+    
+    print(f"📊 Konfigurasi Aktif -> Posisi: [{posisi}] | Lokasi: [{lokasi}] | Mode: [{action_mode}]")
     
     real_posts = search_realtime_posts(posisi, lokasi)
     if not real_posts:
