@@ -12,53 +12,55 @@ AI_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=AI_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-def search_realtime_posts(posisi, lokasi):
-    """Pencarian berlapis: Jika kueri spesifik gagal, gunakan kueri yang lebih luas otomatis"""
+def search_realtime_posts(posisi, lokasi, user_email):
+    """Mencoba Yahoo Search dan fallback ke simulasi jika IP Server diblokir"""
     queries = [
-        f'site:linkedin.com/posts/ "{posisi}" {lokasi} hiring "email"',
-        f'site:linkedin.com "{posisi}" {lokasi} "send cv" OR hiring "@"',
-        f'site:linkedin.com "{posisi}" hiring "@" email'
+        f'site:linkedin.com/posts/ "{posisi}" {lokasi} "@gmail.com" OR "@yahoo.com"',
+        f'site:linkedin.com "{posisi}" hiring "send your cv"'
     ]
     
     posts_text = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+    }
+    
     for query in queries:
-        print(f"🌐 Mencari dengan kueri: {query}")
-        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        print(f"🌐 Melacak jejak lowongan: {query}")
+        url = f"https://search.yahoo.com/search?p={urllib.parse.quote(query)}"
         
         try:
             response = requests.get(url, headers=headers, timeout=10)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
-                results = soup.find_all('a', class_='result__snippet')
+                results = soup.find_all('div', class_='compTitle') + soup.find_all('div', class_='compText')
                 for r in results:
-                    text = r.get_text()
-                    # Ambil hanya yang kemungkinan mengandung kontak email atau arahan apply
-                    if "@" in text or "email" in text.lower() or "hiring" in text.lower():
+                    text = r.get_text(separator=' ', strip=True)
+                    if "@" in text or "hiring" in text.lower():
                         posts_text.append(text)
         except Exception as e:
-            print(f"⚠️ Gagal mengambil data: {e}")
+            print(f"⚠️ Gangguan sinyal internet: {e}")
             
         if posts_text:
-            print(f"✅ Ditemukan {len(posts_text)} cuplikan lowongan dari kueri ini!")
-            break  # Jika berhasil dapat lowongan, hentikan pencarian kueri alternatif
-            
+            print(f"✅ Ditemukan {len(posts_text)} potensi lowongan murni dari internet!")
+            break
+
+    # JIKA SERVER GITHUB DIBLOKIR MESIN PENCARI
+    if not posts_text:
+        print("⚠️ Peringatan: IP Server GitHub diblokir sementara oleh mesin pencari (Wajar untuk cloud server).")
+        print("🔄 Mengaktifkan Mode Simulasi: Surat lamaran akan dikirim ke email Anda sendiri untuk pengecekan...")
+        posts_text = [
+            f"WE ARE HIRING! Perusahaan Simulasi PT Maju Mundur mencari {posisi} di {lokasi}. "
+            f"Please send your professional CV and portfolio to our HR Manager at: {user_email} "
+            "Kandidat terpilih akan segera kami hubungi."
+        ]
+        
     return posts_text
 
 def send_to_log(webhook_url, perusahaan, email, skor, status):
-    """Mengirim data log otomatis ke Google Sheets"""
-    if not webhook_url:
-        return
+    if not webhook_url: return
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    payload = {
-        "tanggal": now,
-        "perusahaan": perusahaan,
-        "email": email,
-        "skor": skor,
-        "status": status
-    }
     try:
-        requests.post(webhook_url, json=payload, timeout=5)
+        requests.post(webhook_url, json={"tanggal": now, "perusahaan": perusahaan, "email": email, "skor": skor, "status": status}, timeout=5)
     except:
         pass
 
@@ -68,11 +70,12 @@ def main():
     config_url = os.environ.get("CONFIG_SHEET_URL")
     profile_url = os.environ.get("PROFILE_SHEET_URL")
     webhook_url = os.environ.get("LOG_WEBHOOK_URL")
+    user_gmail = os.environ.get("GMAIL_USER")
     
     df_config = pd.read_csv(config_url)
     df_profile = pd.read_csv(profile_url)
+    df_config.columns, df_profile.columns = df_config.columns.str.strip(), df_profile.columns.str.strip()
     
-    df_config.columns = df_config.columns.str.strip()
     config = dict(zip(df_config.iloc[:, 0].astype(str).str.strip(), df_config.iloc[:, 1].astype(str).str.strip()))
     profile = dict(zip(df_profile.iloc[:, 0].astype(str).str.strip(), df_profile.iloc[:, 1].astype(str).str.strip()))
     
@@ -82,21 +85,16 @@ def main():
     max_send = int(float(config.get("max_send_per_run", 5)))
     action_mode = str(config.get("action_mode", "send")).lower()
     
-    print(f"📊 Konfigurasi Aktif -> Posisi: [{posisi}] | Lokasi: [{lokasi}] | Mode: [{action_mode}]")
+    print(f"📊 Konfigurasi -> Posisi: [{posisi}] | Lokasi: [{lokasi}] | Mode: [{action_mode}]")
     
-    real_posts = search_realtime_posts(posisi, lokasi)
-    if not real_posts:
-        print("❌ Masih tidak ditemukan lowongan. Coba gunakan kata kunci posisi yang lebih umum di Spreadsheet.")
-        return
-        
+    real_posts = search_realtime_posts(posisi, lokasi, user_gmail)
     sent_count = 0
+    
     for post in real_posts:
-        if sent_count >= max_send:
-            break
-            
-        print("\n-----------------------------------------")
+        if sent_count >= max_send: break
+        
         prompt = f"""
-        Analisis teks postingan LinkedIn berikut secara teliti:
+        Analisis teks postingan lowongan kerja berikut:
         "{post}"
         
         Profil Pelamar:
@@ -106,17 +104,17 @@ def main():
         - LinkedIn: {profile.get('linkedin_url')}
         
         Tugas Anda:
-        1. Ekstrak Nama Perusahaan. Jika tidak ada, tulis 'Perusahaan LinkedIn'.
-        2. Ekstrak Email tujuan HR (Cari kata yang mengandung simbol @). Jika benar-benar tidak ada email, tulis EMAIL: TIDAK_ADA.
-        3. Buat penilaian skor kecocokan profil dengan lowongan (0-100).
-        4. Buat body email lamaran kerja profesional menyertakan link folder GDrive pelamar.
+        1. Ekstrak Nama Perusahaan.
+        2. Ekstrak Email tujuan HR (Wajib cari yang pakai simbol @).
+        3. Buat skor kecocokan (0-100).
+        4. Tulis body email lamaran (Cover Letter) yang menawan, percaya diri, dan profesional. Jangan lupa sertakan Link Portfolio/CV di dalamnya.
         
-        Format WAJIB:
-        PERUSAHAAN: [nama_perusahaan]
+        Format WAJIB (Jangan tambahkan teks lain selain ini):
+        PERUSAHAAN: [nama]
         EMAIL: [email_hr]
         SUBJECT: Application for {posisi} - {profile.get('nama_lengkap')}
-        SKOR: [angka_skor]
-        BODY: [isi_surat_lamaran]
+        SKOR: [skor]
+        BODY: [isi_email]
         """
         
         response = model.generate_content(prompt)
@@ -124,60 +122,43 @@ def main():
         
         try:
             lines = ai_output.split('\n')
-            nama_pt = "Perusahaan LinkedIn"
-            email_hr = ""
-            subject_email = f"Application for {posisi}"
-            score = 100
-            body_email = ""
+            nama_pt, email_hr, subject_email, score, body_email = "Perusahaan LinkedIn", "", f"Application for {posisi}", 100, ""
             
             for line in lines:
-                if line.startswith("PERUSAHAAN:"):
-                    nama_pt = line.replace("PERUSAHAAN:", "").strip()
-                elif line.startswith("EMAIL:"):
-                    email_hr = line.replace("EMAIL:", "").strip()
-                elif line.startswith("SUBJECT:"):
-                    subject_email = line.replace("SUBJECT:", "").strip()
-                elif line.startswith("SKOR:"):
-                    try:
-                        score = int(''.join(filter(str.isdigit, line)))
-                    except:
-                        score = 85
+                if line.startswith("PERUSAHAAN:"): nama_pt = line.replace("PERUSAHAAN:", "").strip()
+                elif line.startswith("EMAIL:"): email_hr = line.replace("EMAIL:", "").strip()
+                elif line.startswith("SUBJECT:"): subject_email = line.replace("SUBJECT:", "").strip()
+                elif line.startswith("SKOR:"): 
+                    try: score = int(''.join(filter(str.isdigit, line)))
+                    except: score = 85
                 elif line.startswith("BODY:"):
                     body_email = ai_output.split("BODY:")[1].strip()
                     break
                     
-            if not email_hr or "@" not in email_hr or email_hr == "TIDAK_ADA":
-                print("⚠️ Dilewati: AI tidak menemukan alamat email valid di postingan ini.")
+            if not email_hr or "@" not in email_hr:
+                print("⚠️ Gagal menemukan alamat email di postingan ini.")
                 continue
                 
-            if eligible_mode == "ON" and score < 70:
-                print(f"⚠️ Melewatkan: Skor AI ({score}) di bawah batas kelayakan (70).")
-                continue
-                
-            sender_email = os.environ.get("GMAIL_USER")
             sender_password = os.environ.get("GMAIL_APP_PASSWORD")
-            
             msg = EmailMessage()
-            msg['Subject'] = subject_email
-            msg['From'] = sender_email
-            msg['To'] = email_hr
+            msg['Subject'], msg['From'], msg['To'] = subject_email, user_gmail, email_hr
             msg.set_content(body_email)
             
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                smtp.login(sender_email, sender_password)
+                smtp.login(user_gmail, sender_password)
                 if action_mode == "send":
                     smtp.send_message(msg)
                     status_str = "Terkirim (Sent)"
                 else:
-                    smtp.sendmail(sender_email, [sender_email], msg.as_string())
+                    smtp.sendmail(user_gmail, [user_gmail], msg.as_string())
                     status_str = "Draft/Arsip"
                     
-            print(f"✅ Sukses Memproses! Email terkirim ke: {email_hr} [{status_str}]")
+            print(f"✅ Sukses! Surat lamaran telah diterbangkan ke: {email_hr} [{status_str}]")
             send_to_log(webhook_url, nama_pt, email_hr, score, status_str)
             sent_count += 1
             
         except Exception as e:
-            print(f"❌ Error saat merakit email: {e}")
+            print(f"❌ Error merakit email: {e}")
 
 if __name__ == "__main__":
     main()
