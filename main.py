@@ -6,7 +6,7 @@ import google.generativeai as genai
 
 AI_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=AI_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-3.5-flash-lite')
 
 def main():
     print("Bot LinkedIn CV Blaster Memulai Tugas di Cloud...")
