@@ -2,6 +2,7 @@ import os
 import smtplib
 from email.message import EmailMessage
 import urllib.parse
+import datetime
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -11,22 +12,19 @@ AI_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=AI_KEY)
 model = genai.GenerativeModel('gemini-3.5-flash-lite')
 
-def search_realtime_posts(keyword):
-    """Fungsi untuk mencari postingan publik LinkedIn secara real-time di internet"""
-    print(f"🌐 Sedang mencari lowongan real-time untuk keyword: '{keyword}'...")
-    query = f"site:linkedin.com/posts/ {keyword} hiring email"
-    url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+def search_realtime_posts(posisi, lokasi, negara):
+    """Mencari lowongan real-time dengan parameter terpisah"""
+    query = f"site:linkedin.com/posts/ \"{posisi}\" \"{lokasi}\" \"{negara}\" hiring email"
+    print(f"🌐 Mencari dengan kueri: {query}")
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     
     posts_text = []
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            # Mengambil cuplikan teks hasil pencarian yang berisi info lowongan
             results = soup.find_all('a', class_='result__snippet')
             for r in results:
                 posts_text.append(r.get_text())
@@ -35,11 +33,29 @@ def search_realtime_posts(keyword):
         
     return posts_text
 
+def send_to_log(webhook_url, perusahaan, email, skor, status):
+    """Mengirim data log otomatis ke Google Sheets"""
+    if not webhook_url:
+        return
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    payload = {
+        "tanggal": now,
+        "perusahaan": perusahaan,
+        "email": email,
+        "skor": skor,
+        "status": status
+    }
+    try:
+        requests.post(webhook_url, json=payload, timeout=5)
+    except:
+        pass
+
 def main():
-    print("🤖 Bot LinkedIn CV Blaster Memulai Tugas Real-Time di Cloud...")
+    print("🤖 Bot LinkedIn CV Blaster Memulai Tugas...")
     
     config_url = os.environ.get("CONFIG_SHEET_URL")
     profile_url = os.environ.get("PROFILE_SHEET_URL")
+    webhook_url = os.environ.get("LOG_WEBHOOK_URL")
     
     df_config = pd.read_csv(config_url)
     df_profile = pd.read_csv(profile_url)
@@ -47,31 +63,26 @@ def main():
     config = dict(zip(df_config.iloc[:, 0], df_config.iloc[:, 1]))
     profile = dict(zip(df_profile.iloc[:, 0], df_profile.iloc[:, 1]))
     
-    keyword = config.get("keyword", "Data Analyst hiring email")
+    posisi = config.get("posisi", "Data Analyst")
+    lokasi = config.get("lokasi", "Jakarta")
+    negara = config.get("negara", "Indonesia")
     eligible_mode = str(config.get("eligible_mode", "ON")).upper()
     max_send = int(config.get("max_send_per_run", 5))
     action_mode = str(config.get("action_mode", "send")).lower()
     
-    print(f"🎯 Target Keyword: {keyword} | Mode Eligible: {eligible_mode} | Max Kirim: {max_send}")
-    
-    # Ambil data postingan nyata dari internet secara real-time
-    real_posts = search_realtime_posts(keyword)
-    
+    real_posts = search_realtime_posts(posisi, lokasi, negara)
     if not real_posts:
-        print("❌ Tidak ditemukan postingan lowongan baru saat ini. Coba ganti kata kunci di Google Sheets.")
+        print("❌ Tidak ditemukan postingan lowongan baru saat ini.")
         return
         
-    print(f"✨ Berhasil menemukan {len(real_posts)} cuplikan postingan untuk dianalisis.")
     sent_count = 0
-    
     for post in real_posts:
         if sent_count >= max_send:
             break
             
         print("\n-----------------------------------------")
-        print("🧠 Menganalisis postingan dengan AI...")
         prompt = f"""
-        Analisis cuplikan teks postingan LinkedIn berikut:
+        Analisis teks postingan LinkedIn berikut:
         "{post}"
         
         Profil Pelamar:
@@ -83,11 +94,13 @@ def main():
         Aturan Mode Eligible: {eligible_mode}
         
         Tugas Anda:
-        1. Ekstrak Email tujuan HR (jika ada di teks). Jika tidak ada email sama sekali, tulis EMAIL: TIDAK_ADA.
-        2. Jika Mode Eligible 'ON', berikan penilaian skor kecocokan (0 sampai 100) antara skill pelamar dengan postingan.
-        3. Buat body email lamaran profesional yang ramah, persuasif, dan menyertakan link folder GDrive pelamar.
+        1. Ekstrak Nama Perusahaan (jika ada, jika tidak tulis 'Perusahaan LinkedIn').
+        2. Ekstrak Email tujuan HR. Jika tidak ada email, tulis EMAIL: TIDAK_ADA.
+        3. Jika Mode Eligible 'ON', berikan penilaian skor kecocokan (0 sampai 100).
+        4. Buat body email lamaran profesional yang menyertakan link folder GDrive pelamar.
         
-        Berikan jawaban dalam format teks bersih dengan pemisah berikut:
+        Format jawaban:
+        PERUSAHAAN: [nama_perusahaan]
         EMAIL: [email_hr]
         SUBJECT: [subjek_email]
         SKOR: [angka_skor]
@@ -99,13 +112,16 @@ def main():
         
         try:
             lines = ai_output.split('\n')
+            nama_pt = "Perusahaan LinkedIn"
             email_hr = ""
             subject_email = "Lamaran Pekerjaan"
             score = 100
             body_email = ""
             
             for line in lines:
-                if line.startswith("EMAIL:"):
+                if line.startswith("PERUSAHAAN:"):
+                    nama_pt = line.replace("PERUSAHAAN:", "").strip()
+                elif line.startswith("EMAIL:"):
                     email_hr = line.replace("EMAIL:", "").strip()
                 elif line.startswith("SUBJECT:"):
                     subject_email = line.replace("SUBJECT:", "").strip()
@@ -118,11 +134,10 @@ def main():
                     body_email = line.replace("BODY:", "").strip()
                     
             if not email_hr or "@" not in email_hr or email_hr == "TIDAK_ADA":
-                print("⚠️ Postingan ini dilewati karena tidak mencantumkan alamat email HR yang valid.")
                 continue
                 
             if eligible_mode == "ON" and score < 70:
-                print(f"⚠️ Melewatkan lowongan karena Skor AI ({score}) di bawah batas 70.")
+                print(f"⚠️ Melewatkan lowongan karena Skor AI ({score}) di bawah 70.")
                 continue
                 
             sender_email = os.environ.get("GMAIL_USER")
@@ -138,14 +153,17 @@ def main():
                 smtp.login(sender_email, sender_password)
                 if action_mode == "send":
                     smtp.send_message(msg)
-                    print(f"✅ BERHASIL DIKIRIM otomatis ke {email_hr}!")
+                    status_str = "Terkirim (Sent)"
                 else:
                     smtp.sendmail(sender_email, [sender_email], msg.as_string())
-                    print(f"📝 Disimpan ke Draft/Arsip.")
+                    status_str = "Draft/Arsip"
                     
+            print(f"✅ Berhasil memproses lowongan ke {email_hr} [{status_str}]")
+            send_to_log(webhook_url, nama_pt, email_hr, score, status_str)
             sent_count += 1
+            
         except Exception as e:
-            print(f"❌ Terjadi kesalahan: {e}")
+            print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
     main()
