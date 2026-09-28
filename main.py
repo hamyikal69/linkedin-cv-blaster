@@ -12,13 +12,14 @@ AI_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=AI_KEY)
 model = genai.GenerativeModel('gemini-3.5-flash-lite')
 
-def search_realtime_posts(posisi, lokasi, negara):
-    """Mencari lowongan real-time dengan parameter terpisah"""
-    query = f"site:linkedin.com/posts/ \"{posisi}\" \"{lokasi}\" \"{negara}\" hiring email"
+def search_realtime_posts(posisi, lokasi):
+    """Pencarian real-time yang lebih luas agar pasti mendeteksi postingan HR"""
+    # Menggabungkan posisi dan lokasi tanpa tanda kutip ketat agar hasil lebih kaya
+    query = f"site:linkedin.com/posts/ {posisi} {lokasi} hiring email"
     print(f"🌐 Mencari dengan kueri: {query}")
     
     url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
     posts_text = []
     try:
@@ -65,17 +66,18 @@ def main():
     
     posisi = config.get("posisi", "Data Analyst")
     lokasi = config.get("lokasi", "Jakarta")
-    negara = config.get("negara", "Indonesia")
     eligible_mode = str(config.get("eligible_mode", "ON")).upper()
     max_send = int(config.get("max_send_per_run", 5))
     action_mode = str(config.get("action_mode", "send")).lower()
     
-    real_posts = search_realtime_posts(posisi, lokasi, negara)
+    real_posts = search_realtime_posts(posisi, lokasi)
     if not real_posts:
         print("❌ Tidak ditemukan postingan lowongan baru saat ini.")
         return
         
+    print(f"✨ Berhasil menarik {len(real_posts)} cuplikan postingan dari internet.")
     sent_count = 0
+    
     for post in real_posts:
         if sent_count >= max_send:
             break
@@ -134,10 +136,11 @@ def main():
                     body_email = line.replace("BODY:", "").strip()
                     
             if not email_hr or "@" not in email_hr or email_hr == "TIDAK_ADA":
+                print("⚠️ Dilewati karena tidak ada email HR yang valid.")
                 continue
                 
             if eligible_mode == "ON" and score < 70:
-                print(f"⚠️ Melewatkan lowongan karena Skor AI ({score}) di bawah 70.")
+                print(f"⚠️ Melewatkan lowongan karena Skor AI ({score}) di bawah batas 70.")
                 continue
                 
             sender_email = os.environ.get("GMAIL_USER")
