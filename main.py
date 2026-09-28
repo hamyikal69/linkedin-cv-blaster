@@ -10,10 +10,12 @@ import google.generativeai as genai
 
 AI_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=AI_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Solusi Error 404: Menggunakan model gemini-pro yang kompatibel dengan server
+model = genai.GenerativeModel('gemini-pro')
 
 def search_realtime_posts(posisi, lokasi, user_email):
-    """Mencoba Yahoo Search dan fallback ke simulasi jika IP Server diblokir"""
+    # Solusi Anti-Blokir: Tetap menggunakan Yahoo Search
     queries = [
         f'site:linkedin.com/posts/ "{posisi}" {lokasi} "@gmail.com" OR "@yahoo.com"',
         f'site:linkedin.com "{posisi}" hiring "send your cv"'
@@ -25,7 +27,7 @@ def search_realtime_posts(posisi, lokasi, user_email):
     }
     
     for query in queries:
-        print(f"🌐 Melacak jejak lowongan: {query}")
+        print(f"🌐 Melacak jejak lowongan via Yahoo: {query}")
         url = f"https://search.yahoo.com/search?p={urllib.parse.quote(query)}"
         
         try:
@@ -44,14 +46,13 @@ def search_realtime_posts(posisi, lokasi, user_email):
             print(f"✅ Ditemukan {len(posts_text)} potensi lowongan murni dari internet!")
             break
 
-    # JIKA SERVER GITHUB DIBLOKIR MESIN PENCARI
+    # Mode Fallback Simulasi
     if not posts_text:
-        print("⚠️ Peringatan: IP Server GitHub diblokir sementara oleh mesin pencari (Wajar untuk cloud server).")
-        print("🔄 Mengaktifkan Mode Simulasi: Surat lamaran akan dikirim ke email Anda sendiri untuk pengecekan...")
+        print("⚠️ Peringatan: IP Server GitHub sedang dibatasi oleh mesin pencari.")
+        print("🔄 Mengaktifkan Mode Simulasi: Surat lamaran akan dikirim ke email Anda sendiri untuk pengecekan perakitan AI...")
         posts_text = [
-            f"WE ARE HIRING! Perusahaan Simulasi PT Maju Mundur mencari {posisi} di {lokasi}. "
-            f"Please send your professional CV and portfolio to our HR Manager at: {user_email} "
-            "Kandidat terpilih akan segera kami hubungi."
+            f"WE ARE HIRING! PT Eksekusi Sukses mencari {posisi} di {lokasi}. "
+            f"Please send your CV to: {user_email} "
         ]
         
     return posts_text
@@ -107,9 +108,9 @@ def main():
         1. Ekstrak Nama Perusahaan.
         2. Ekstrak Email tujuan HR (Wajib cari yang pakai simbol @).
         3. Buat skor kecocokan (0-100).
-        4. Tulis body email lamaran (Cover Letter) yang menawan, percaya diri, dan profesional. Jangan lupa sertakan Link Portfolio/CV di dalamnya.
+        4. Tulis body email lamaran (Cover Letter) yang menawan dan profesional, WAJIB sertakan Link Portfolio/CV.
         
-        Format WAJIB (Jangan tambahkan teks lain selain ini):
+        Format WAJIB (Harus persis seperti ini):
         PERUSAHAAN: [nama]
         EMAIL: [email_hr]
         SUBJECT: Application for {posisi} - {profile.get('nama_lengkap')}
@@ -117,8 +118,12 @@ def main():
         BODY: [isi_email]
         """
         
-        response = model.generate_content(prompt)
-        ai_output = response.text
+        try:
+            response = model.generate_content(prompt)
+            ai_output = response.text
+        except Exception as e:
+            print(f"❌ Gemini API Error: {e}")
+            continue
         
         try:
             lines = ai_output.split('\n')
